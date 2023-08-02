@@ -1,16 +1,25 @@
+import time
+
 from GroundStation import GroundAuthenticationServer
 from Satellite import LEO, GEO
 
-gas = GroundAuthenticationServer()
 
-leo = LEO()
-geo = GEO()
+if __name__ == "__main__":
+    gas = GroundAuthenticationServer()
 
-# 添加在轨卫星
-gas.system_initialization.orbit_management.add_satellite(leo)
-gas.system_initialization.orbit_management.add_satellite(geo)
+    leo = LEO()
+    geo = GEO()
 
-# 初始化信息
-gas.system_initialization.start_initialization()
+    # 添加在轨卫星
+    gas.system_initialization.orbit_management.add_satellite(leo)
+    gas.system_initialization.orbit_management.add_satellite(geo)
 
-print(gas.system_initialization.orbit_management.get_satellite(0).__str__())
+    # 初始化信息
+    gas.system_initialization.start_initialization()
+    gas.system_initialization.startup_satellites()
+
+    # 模拟G2L首次身份认证
+    time.sleep(3)
+    gas.system_initialization.orbit_management.get_satellite(0).access_authentication(geo)
+
+    # print(gas.system_initialization.orbit_management.get_satellite(0).__str__())

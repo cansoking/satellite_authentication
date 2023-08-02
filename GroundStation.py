@@ -1,5 +1,3 @@
-import socket
-
 from satellite_utils import generate_random_id
 
 
@@ -41,6 +39,15 @@ class GroundAuthenticationServer:
                 satellite.set_port(info['port'])
                 satellite.set_rid(info['rid'])
                 satellite.set_gid(info['gid'])
+                # 组织认证身份信息表
+                satellite.set_authentication_table(satellites_information)
+
+        def startup_satellites(self):
+            """
+            启动卫星，即启动对应卫星线程
+            """
+            for i in range(self.orbit_management.get_num_satellites()):
+                self.orbit_management.get_satellite(i).start_satellite()
 
         class __IdentityInformationManagement:
             """
@@ -61,10 +68,14 @@ class GroundAuthenticationServer:
 
                 satellites_information = []
                 for i in range(num_satellites):
-                    # 生成RID
+                    # 生成信息
+                    port = generate_random_id()
+                    # 控制端口号不超过65535
+                    while int(port) > 65535:
+                        port = generate_random_id()
                     cur_sate_info = {'rid': generate_random_id(),
                                      'gid': generate_random_id(),
-                                     'port': generate_random_id(),
+                                     'port': port,
                                      'ip': "127.0.0.1"}
                     satellites_information.append(cur_sate_info)
                 return satellites_information

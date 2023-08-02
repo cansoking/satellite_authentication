@@ -14,6 +14,9 @@ while True:
     data = recv[0].strip().decode()
     ip_port = recv[1]
     print(f"本机（{host}:{port}）收到来自客户端（{ip_port[0]}:{ip_port[1]}）的消息：{data}")
+    inp = input("需要返回发送的消息（none为不发送）：").strip()
+    if inp != 'none':
+        s.sendto(inp.encode(), (ip_port[0], ip_port[1]))
     # data = data.strip().decode()
     if data == "exit":
         print("客户端主动断开连接！")
