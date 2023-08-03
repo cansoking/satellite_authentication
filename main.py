@@ -19,7 +19,9 @@ if __name__ == "__main__":
     gas.system_initialization.startup_satellites()
 
     # 模拟G2L首次身份认证
-    time.sleep(3)
-    gas.system_initialization.orbit_management.get_satellite(0).access_authentication(geo)
+    # time.sleep(3)
+    # gas.system_initialization.orbit_management.get_satellite(0).access_authentication(geo)
+    gas.system_initialization.orbit_management.G2L_AKA(leo, geo)
+    # gas.system_initialization.orbit_management.G2L_AKA(leo, geo)
 
     # print(gas.system_initialization.orbit_management.get_satellite(0).__str__())

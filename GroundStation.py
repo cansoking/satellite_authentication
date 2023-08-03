@@ -1,3 +1,5 @@
+import socket
+
 from satellite_utils import generate_random_id
 
 
@@ -104,6 +106,15 @@ class GroundAuthenticationServer:
 
             def get_num_satellites(self):
                 return len(self.__orbiting_satellites)
+
+            def G2L_AKA(self, leo, geo):
+                with socket.socket(socket.AF_INET, socket.SOCK_DGRAM, 0) as s:
+                    # 向LEO发送准备接入的GEO信息
+                    s.sendto(("join&" + geo.get_rid()).encode(), (leo.get_ip(), int(leo.get_port())))
+                    # 向GEO发送LEO信息
+                    s.sendto(("join&" + leo.get_rid()).encode(), (geo.get_ip(), int(geo.get_port())))
+                    s.close()
+
 
     class __NetworkingAuthentication:
         """
