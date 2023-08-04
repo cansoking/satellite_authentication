@@ -113,6 +113,7 @@ class GroundAuthenticationServer:
                     s.sendto(("join&" + geo.get_rid()).encode(), (leo.get_ip(), int(leo.get_port())))
                     # 向GEO发送LEO信息
                     s.sendto(("join&" + leo.get_rid()).encode(), (geo.get_ip(), int(geo.get_port())))
+                    # 接收认证结束消息
                     s.close()
 
 
