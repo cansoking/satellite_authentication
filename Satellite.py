@@ -39,6 +39,20 @@ class Satellite(object):
         self._socket_port = ''
 
     # 计算函数
+    def _function_tid(self, t_tid):
+        """
+        计算TID
+        :return: TID
+        """
+
+        message = bytes(t_tid + self._rid, 'utf8')
+        # 初始化SM4
+        csm4 = CryptSM4()
+        csm4.set_key(self._id_key, SM4_ENCRYPT)
+        tid = csm4.crypt_ecb(message)  # bytes类型
+        # 转为16进制字符返回
+        return tid.hex()
+
     def _function_ak(self, t_auth):
         return hmac_sm3_256(self._main_key.decode(), t_auth)
 
@@ -95,11 +109,38 @@ class GEO(Satellite):
 
     def __init__(self):
         super().__init__()
+        self.__auth_token = None
+        self.__xres = None
+        self.__ck = None
+        self.__xtid = None
+        self.__auth_key = None
+        self.__rand = None
         self.__geo_socket = None
         self.__access_queue = []
 
     def access_authentication(self, satellite):
         pass
+
+    def pre_calculate(self, ac_time):
+        """
+        认证预计算
+        :param ac_time: 下次接入时间
+        """
+        # 计算信息
+        self.__xtid = self._function_tid(str(ac_time))
+        self.__auth_key = self._function_ak(str(ac_time))
+        self.__ck = self._function_ck(self.__auth_key, self.__rand)
+        self.__xres = self._function_res(self.__ck, self.__rand)
+        # 计算新Token和CK
+        rand = generate_random_id()
+        self.__ck = self._function_ck(self.__auth_key, rand)
+        tk = self._function_tk(self.__auth_key, rand)
+        # 计算MAC
+        mac = self._function_mac(bytes(self.__auth_key, 'utf8'),
+                                 bytes(rand + ac_time + self._gid, 'utf8'))
+        # 组合Token
+        t_token_xor_tk = func.list_to_bytes(func.xor(bytes(ac_time, 'utf8'), bytes(tk, 'utf8')))
+        self.__auth_token = bytes(rand, 'utf8') + t_token_xor_tk + bytes(self._gid, 'utf8') + mac
 
     def start_satellite(self):
         """
@@ -153,6 +194,7 @@ class GEO(Satellite):
                                 auth_key = self._function_ak(t_auth)
                                 # 生成随机数
                                 rand = generate_random_id()
+                                self.__rand = rand
                                 # 计算TK
                                 tk = self._function_tk(auth_key, rand)
                                 # 获取t_token
@@ -177,13 +219,23 @@ class GEO(Satellite):
                                 if self.__xres == res:
                                     print(f"[GEO-{self._rid}] RES校验成功 本方完成身份认证")
                                 else:
-                                    print(f"[GEO-{self._rid}] RES校验成功")
+                                    print(f"[GEO-{self._rid}] RES校验失败")
                                 # 交换信息
                             else:
                                 print(f"[GEO-{self._rid}] 验证失败 #rid或时间戳不符合要求")
                                 break
                         elif len(data) == 64:
-                            pass
+                            # 提取内容
+                            tid = data[:32]
+                            res = data[32:]
+                            # 比较预计算内容
+                            if tid == self.__xtid and res == self.__xres:
+                                print(f"[GEO-{self._rid}] 预计算TID和RES校验成功 本方完成身份认证")
+                                # 返回预计算Token给LEO
+                                self.__geo_socket.sendto(self.__auth_token, (ip_port[0], int(ip_port[1])))
+                                print(f"[GEO-{self._rid}] 返回预计算Token到<{ip_port[0]}:{ip_port[1]}> Token内容：{self.__auth_token}")
+                            else:
+                                print(f"[GEO-{self._rid}] 预计算TID和RES校验失败")
                         recv = self.__geo_socket.recvfrom(1024)
                 recv_data = self.__geo_socket.recvfrom(1024)[0].strip().decode()
                 command = recv_data.split('&')[0]
@@ -198,22 +250,12 @@ class LEO(Satellite):
 
     def __init__(self):
         super().__init__()
+        self.__res = None
+        self.__rand = None
+        self.__ck = None
+        self.__auth_key = None
+        self.__tid = None
         self.__leo_socket = None
-
-    def __function_tid(self):
-        """
-        计算TID
-        :return: TID
-        """
-
-        t_tid = str(int(time.time()))
-        message = bytes(t_tid + self._rid, 'utf8')
-        # 初始化SM4
-        csm4 = CryptSM4()
-        csm4.set_key(self._id_key, SM4_ENCRYPT)
-        tid = csm4.crypt_ecb(message)  # bytes类型
-        # 转为16进制字符返回
-        return tid.hex()
 
     def start_satellite(self):
         """
@@ -240,6 +282,19 @@ class LEO(Satellite):
                             # 发送接入请求
                             self.access_authentication(satellite['rid'])
                             break
+                if command == 'sjoin':
+                    for satellite in self._authentication_table:
+                        if satellite['rid'] == content:
+                            # 轨道摄动选项
+                            is_perturbation = False
+                            if is_perturbation:
+                                pass
+                            else:
+                                # 没发生轨道摄动
+                                # 发送星间切换认证请求给GEO
+                                self.switching_access_authentication(satellite['rid'])
+                            break
+
                 recv_data = self.__leo_socket.recvfrom(1024)[0].strip().decode()
                 command = recv_data.split('&')[0]
                 content = recv_data.split('&')[1]
@@ -247,15 +302,66 @@ class LEO(Satellite):
         thread_object = Thread(target=processing_tcc_method)
         thread_object.start()
 
+    def pre_calculate(self, ac_time):
+        """
+        认证预计算
+        :param ac_time: 下次接入时间
+        """
+        # 计算信息
+        self.__tid = self._function_tid(str(ac_time))
+        self.__auth_key = self._function_ak(str(ac_time))
+        self.__ck = self._function_ck(self.__auth_key, self.__rand)
+        self.__res = self._function_res(self.__ck, self.__rand)
+
+    def switching_access_authentication(self, rid):
+        """
+        切换接入认证
+        :param rid: 接入的卫星ID
+        """
+        # 发送TID和RES给GEO
+        for satellite in self._authentication_table:
+            if satellite['rid'] == rid:
+                msg = self.__tid + self.__res
+                self.__leo_socket.sendto(msg.encode(), (satellite['ip'], int(satellite['port'])))
+                print(f"[LEO-{self._rid}] 发送切换接入请求到<{satellite['ip']}:{satellite['port']}> 密文内容：{msg}")
+                # 设置超时，此处超时0.5s，规定Token返回时间
+                self.__leo_socket.settimeout(0.5)
+                recv_data = self.__leo_socket.recvfrom(1024)[0].strip()
+                print(f"[LEO-{self._rid}] 接受到Token：{recv_data}")
+                # 提取rand, mac, t_token_xor_tk, gid
+                rand = recv_data[:5].decode()
+                mac = recv_data[-32:]
+                t_token_xor_tk = recv_data[5:-37]
+                gid = recv_data[-37:-32].decode()
+                # 验证Token合法性
+                # 计算TK
+                tk = self._function_tk(self.__auth_key, rand)
+                # 恢复T_Token
+                t_token = func.list_to_bytes(func.xor(t_token_xor_tk, bytes(tk, 'utf8'))).decode()
+                # 新鲜性认证
+                if time.time() - int(t_token) < 1:
+                    # 通过认证
+                    print(f"[LEO-{self._rid}] T_Token新鲜性验证成功 准备下一步校验")
+                    # 计算XMAC
+                    xmac = self._function_mac(bytes(self.__auth_key, 'utf8'), bytes(rand + t_token + gid, 'utf8'))
+                    # 校验MAC
+                    if xmac == mac:
+                        print(f"[LEO-{self._rid}] MAC校验成功 本方完成身份认证")
+                        # 计算CK 和 RES
+                        ck = self._function_ck(self.__auth_key, rand)
+                    else:
+                        print(f"[LEO-{self._rid}] MAC校验失败")
+                else:
+                    print(f"[LEO-{self._rid}] T_Token新鲜性验证失败")
+
     def access_authentication(self, rid):
         """
-        接入认证
+        初次接入认证
         :param rid: 接入的卫星ID
-        :param satellite: 接入的卫星对象
         """
 
         # 计算TID
-        tid = self.__function_tid()
+        tid = self._function_tid(str(int(time.time())))
         # 设置超时，此处超时100s，预防假节点
         self.__leo_socket.settimeout(100)
         # 发送TID
@@ -269,6 +375,7 @@ class LEO(Satellite):
                 print(f"[LEO-{self._rid}] 接受到Token：{recv_data}")
                 # 提取rand, mac, t_token_xor_tk, gid
                 rand = recv_data[:5].decode()
+                self.__rand = rand
                 mac = recv_data[-32:]
                 t_token_xor_tk = recv_data[5:-37]
                 gid = recv_data[-37:-32].decode()
@@ -295,6 +402,7 @@ class LEO(Satellite):
                         # 返回RES给GEO
                         self.__leo_socket.sendto(res.encode(), (satellite['ip'], int(satellite['port'])))
                         print(f"[LEO-{self._rid}] 发送RES到<{satellite['ip']}:{satellite['port']}> RES内容：{res}")
+                        # !!!!!!!!!!!! 省略认证信息交换过程，从初始认证中记录需要认证信息
                     else:
                         print(f"[LEO-{self._rid}] MAC校验失败")
                 else:
