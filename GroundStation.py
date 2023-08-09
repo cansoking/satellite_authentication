@@ -1,4 +1,5 @@
 import socket
+import time
 
 from satellite_utils import generate_random_id
 
@@ -113,6 +114,18 @@ class GroundAuthenticationServer:
                     s.sendto(("join&" + geo.get_rid()).encode(), (leo.get_ip(), int(leo.get_port())))
                     # 向GEO发送LEO信息
                     s.sendto(("join&" + leo.get_rid()).encode(), (geo.get_ip(), int(geo.get_port())))
+                    # 接收初次接入认证成功RES
+                    if s.recvfrom(1024)[0].strip().decode() == 'faa':
+                        # 开始预计算
+                        leo_ac_time = int(time.time())+5
+                        geo_ac_time = int(time.time())+5
+                        print(f"geo_ac_time: {geo_ac_time}\nleo_ac_time: {leo_ac_time}")
+                        leo.pre_calculate(leo_ac_time)
+                        geo.pre_calculate(geo_ac_time, leo.get_rid())
+                        # 向LEO发送准备接入的GEO信息
+                        s.sendto(("sjoin&" + geo.get_rid()).encode(), (leo.get_ip(), int(leo.get_port())))
+                        # 向GEO发送LEO信息
+                        s.sendto(("sjoin&" + leo.get_rid()).encode(), (geo.get_ip(), int(geo.get_port())))
                     # 接收认证结束消息
                     s.close()
 
